@@ -1,0 +1,6 @@
+#useDynLib(pchc, .registration = TRUE)
+
+importFrom("Rfast", colmeans, colsums, rvmf)
+importFrom("stats", optim, optimize)
+
+

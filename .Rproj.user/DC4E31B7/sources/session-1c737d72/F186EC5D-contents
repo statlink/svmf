@@ -1,0 +1,37 @@
+rsvmf <- function(n, mu, a, kappa, Gamma = NULL) {
+  #   n: number of samples
+  #   mu: mean direction (unit vector of length p)
+  #   a: vector of length p containing a1, a2, ..., ap
+  #      with constraint prod(a[-1]) = 1
+  #   kappa: concentration parameter (>0)
+  #   Gamma: optional p x p orthogonal matrix with first column = mu
+  #          If NULL, rotates using Householder reflection
+  p <- length(mu)
+  q <- p - 1
+
+  a1 <- a[1]
+  a_j <- a[-1]
+  a_j <- a_j / prod(a_j)^(1/q)
+  e1 <- c(1, numeric(q))
+
+  z <- Rfast::rvmf(n, e1, kappa)
+  a_vec_inv <- 1 / c(a1, a_j)
+  y_aligned <- Rfast::eachrow(z, a_vec_inv)
+  y_aligned <- y_aligned / sqrt( Rfast::rowsums(y_aligned^2) )
+
+  if (!is.null(Gamma)) {
+    y <- tcrossprod(y_aligned, Gamma)
+  } else {
+    mu_n <- mu / sqrt( sum(mu^2) )
+    if (max(abs(mu_n - e1)) < 1e-12) {
+      y <- y_aligned
+    } else {
+      u_h <- e1 - mu_n
+      u_h <- u_h / sqrt(sum(u_h^2))
+      R <- diag(p) - 2 * tcrossprod(u_h)
+      y <- y_aligned %*% R
+    }
+  }
+
+  y
+}
