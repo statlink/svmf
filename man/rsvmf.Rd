@@ -9,7 +9,7 @@ Random value simulation from the scaled von Mises--Fisher distribution.
 }
 
 \usage{
-rsvmf(n, mu, a, kappa, Gamma)
+rsvmf(n, mu, a, kappa, Gamma = NULL)
 }
 
 \arguments{
@@ -26,7 +26,7 @@ The vector of alphas.
 The concentration parameter.
 }
 \item{Gamma}{
-The matrix with the \eqn{\gm{\gamma}} vectors.
+The matrix with the \eqn{\gamma} vectors.
 }
 }
 

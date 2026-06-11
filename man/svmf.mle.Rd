@@ -23,7 +23,7 @@ The value of the \eqn{\alpha_1} parameter is set to 1 , as suggested by Scealy a
 The maximum number of iterations to perform.
 }
 \item{maxit_V}{
-The maximum number of iterations to perform to estimate the \eqn{\bm{V}} matrix.
+The maximum number of iterations to perform to estimate the \eqn{V} matrix.
 }
 \item{tol}{
 The tolerance value until convergence of the log-likelihood.
@@ -36,7 +36,7 @@ A list including:
 The estimated mean direction.
 }
 \item{kappa}{
-The estimated concentration partameter.
+The estimated concentration parameter.
 }
 \item{a}{
 The estimated vector of alphas, the first value is 1, by default.
@@ -45,7 +45,7 @@ The estimated vector of alphas, the first value is 1, by default.
 the log-likelihood value.
 }
 \item{Gamma}{
-The estimated matrix with the \eqn{\bm{\gamma}} vectors. The first column of this matrix is the mean direction.
+The estimated matrix with the \eqn{\gamma} vectors. The first column of this matrix is the mean direction.
 }
 }
 

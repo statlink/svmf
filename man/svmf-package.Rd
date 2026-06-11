@@ -2,11 +2,11 @@
 \alias{svmf-package}
 \docType{package}
 \title{
-The Scaled von Mises-Fisher Distribution
+The Scaled von Mises--Fisher Distribution
 }
 
 \description{
-Functions to perform maximum likelihood estimation of and random value simulation from the scaled von Mises-Fisher distribution.
+Functions to perform maximum likelihood estimation of and random value simulation from the scaled von Mises--Fisher distribution.
 For more information see Scealy and Wood (2019).
 }
 
