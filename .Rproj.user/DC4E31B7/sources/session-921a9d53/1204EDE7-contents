@@ -1,0 +1,285 @@
+svmf.mle <- function(y, a1 = 1, maxit_outer = 100, maxit_V = 500, tol = 1e-6) {
+
+  n <- dim(y)[1]  ;  p <- dim(y)[2]
+  q <- p - 1
+
+  #--- Preliminary rotation ---
+  tr <- .prelim_transform(y)
+  yt <- tr$y_tilde
+  Gh <- tr$Gamma_hat
+
+  #--- Starting values ---
+  mu <- c(1, rep(0, q))    # north pole
+  V <- diag(q)
+  kappa <- 10
+
+  ll_old <-  -Inf
+
+  #--- Alternating iterations ---
+  for ( i in seq_len(maxit_outer) ) {
+
+    # 1. Update V
+    V <- tryCatch( .update_V(yt, mu, kappa, V, a1, maxit = maxit_V, tol = tol * 1e-2),
+                   error = function(e) { diag(q) } )
+    # 2. Update kappa (golden-section / Brent)
+    opt_k <- tryCatch( optimize( .loglik_kappa, interval = c(1e-6, 500), y = yt,
+                       mu = mu, V = V, a1 = a1, maximum = TRUE, tol = tol * 1e-2 ),
+                       error = function(e) list(maximum = 10) )
+    kappa <- opt_k$maximum
+    # 3. Update mu via Nelder-Mead over angle parameterisation
+    obj_mu <- function(angles) {
+      mu_c <- .angles_to_mu(angles)
+      - .loglik_full(yt, mu_c, kappa, V, a1)
+    }
+    # Get initial angles safely
+    init_angles <- .mu_to_angles(mu)
+    nm <- tryCatch( optim( init_angles, obj_mu, method = "Nelder-Mead",
+            control = list(reltol = tol * 1e-2, maxit = 10000, abstol = tol * 1e-2) ),
+            error = function(e) list(par = init_angles) )
+    mu <- .angles_to_mu(nm$par)
+    # 4. Check convergence
+    ll_new <- .loglik_full(yt, mu, kappa, V, a1)
+    if ( is.finite(ll_new)  &&  abs(ll_new - ll_old) < tol )  break
+    if ( is.finite(ll_new) )  ll_old <- ll_new
+  }
+
+  mu_orig <- drop(Gh %*% mu)
+  Hs_rot <- .Hstar(mu)
+  Gamma_orig <- Gh %*% cbind(mu, Hs_rot)
+
+  list(mu = mu_orig, kappa = kappa, V = V, loglik = ll_new, Gamma = Gamma_orig)
+}
+
+
+
+
+.log_cp <- function(kappa, p) {
+  nu <- p / 2 - 1
+  (p / 2) * log(2 * pi) + log(besselI(kappa, nu, expon.scaled = TRUE)) + kappa - nu * log(kappa)
+}
+
+
+.Hstar <- function(mu) {
+  p <- length(mu)
+  mu1 <- mu[1]
+  muL <- mu[-1]
+  bot_right <- (1 / (1 + mu1)) * tcrossprod(muL) - diag(p - 1)
+  rbind(t(muL), bot_right)
+}
+
+.compute_s2 <- function(y1s, yLs, Vinv, a1) {
+  (y1s / a1)^2 + Rfast::rowsums( (yLs %*% Vinv) * yLs )
+}
+
+.loglik_full <- function(y, mu, kappa, V, a1, Vinv = NULL) {
+  p <- ncol(y)  ;  n <- nrow(y)
+  # Ensure mu is a unit vector
+  mu <- mu / sqrt(sum(mu^2))
+
+  if ( is.null(Vinv) ) {
+    # Add small ridge to ensure invertibility
+    V_reg <- V + diag( nrow(V) ) * 1e-8
+    Vinv <- solve(V_reg)
+  }
+
+  Hs <- .Hstar(mu)
+  y1s <- drop(y %*% mu)
+  yLs <- y %*% Hs
+  s2 <- .compute_s2(y1s, yLs, Vinv, a1)
+  # Protect against numerical issues
+  s2 <- pmax(s2, 1e-10)
+
+  -n * log(a1) - n * .log_cp(kappa, p) - (p - 1) / 2 * sum(log(s2)) + kappa / a1 * sum(y1s / sqrt(s2))
+}
+
+
+.update_V <- function(y, mu, kappa, V, a1,
+                     maxit = 500, tol = 1e-9) {
+  p <- ncol(y)  ;  q <- p - 1
+  Hs <- .Hstar(mu)
+  y1s <- drop(y %*% mu)
+  yLs <- y %*% Hs          # n x (p-1)
+
+  # Add small ridge to V for stability
+  V <- V + diag(q) * 1e-6
+  V <- V / det(V)^(1/q)
+
+  for ( iter in seq_len(maxit) )  {
+    Vinv <- tryCatch(solve(V), error = function(e) solve(V + diag(q) * 1e-8))
+    s2 <- .compute_s2(y1s, yLs, Vinv, a1)
+    s2 <- pmax(s2, 1e-10)
+
+    # weights from estimating equation
+    w <- (p - 1) / s2 + (kappa / a1) * y1s / s2^(3 / 2)
+    w <- pmax(w, 1e-10)
+    # weighted scatter matrix
+    Vnew <- crossprod(yLs, yLs * w)          # (p-1) x (p-1)
+    # enforce det(V) = 1
+    det_val <- max(det(Vnew), 1e-10)
+    Vnew <- Vnew / det_val^(1 / q)
+    # Add small ridge
+    Vnew <- Vnew + diag(q) * 1e-8
+    Vnew <- Vnew / det(Vnew)^(1/q)
+
+    if ( max(abs(Vnew - V)) < tol )  { V <- Vnew; break }
+    V <- Vnew
+  }
+  V
+}
+
+#------------------------------------------------------------
+# Profile log-likelihood for kappa (eq. 12)
+#------------------------------------------------------------
+.loglik_kappa <- function(kappa, y, mu, V, a1) {
+  if  ( kappa <= 1e-8 )  return(-Inf)
+  p <- ncol(y)  ; n <- nrow(y)
+  mu <- mu / sqrt( sum(mu^2) )
+  q <- p - 1
+
+  Vinv <- tryCatch( solve(V + diag(q) * 1e-8), error = function(e) diag(q) )
+  Hs <- .Hstar(mu)
+  y1s <- drop(y %*% mu)
+  yLs <- y %*% Hs
+  s2 <- .compute_s2(y1s, yLs, Vinv, a1)
+  s2 <- pmax(s2, 1e-10)
+  -n * .log_cp(kappa, p) + kappa / a1 * sum(y1s / sqrt(s2))
+}
+
+.prelim_transform <- function(y) {
+  p <- ncol(y)
+  ybar <- Rfast::colmeans(y)
+  mu_h <- ybar / sqrt( max(sum(ybar^2), 1e-10) )
+
+  S <- crossprod(y)
+  proj <- diag(p) - tcrossprod(mu_h)
+  M <- proj %*% S %*% proj
+  eig <- eigen(M, symmetric = TRUE)
+  # Gamma_hat = [mu_h | eigenvectors in decreasing order]
+  evecs <- eig$vectors[, seq_len(min(p - 1, length(eig$values))), drop = FALSE]
+  # sign convention: first component of each eigenvector positive
+  for ( j in seq_len(ncol(evecs)) )  {
+    if (evecs[1, j] < 0)  evecs[, j] <- -evecs[, j]
+  }
+  Gamma_hat <- cbind(mu_h, evecs)
+  list(y_tilde = y %*% Gamma_hat, Gamma_hat = Gamma_hat)
+}
+
+.angles_to_mu <- function(angles) {
+  p <- length(angles) + 1
+  mu <- numeric(p)
+  # Clamp angles to valid range
+  angles <- pmax(pmin(angles, pi - 1e-10), 1e-10)
+
+  cp  <- cumprod( sin(angles) )
+  mu[1] <- cos(angles[1])
+  if ( p > 2 ) {
+    for ( k in 2:(p - 1) )  {
+      mu[k] <- cp[k - 1] * cos(angles[k])
+    }
+  }
+  mu[p] <- cp[p - 1]
+  # Normalize to ensure unit vector
+  mu / sqrt( sum(mu^2) )
+}
+
+.mu_to_angles <- function(mu) {
+  p <- length(mu)
+  # Normalize mu
+  mu <- mu / sqrt( max(sum(mu^2), 1e-10) )
+  mu <- pmax(pmin(mu, 1), -1)
+
+  angles <- numeric(p - 1)
+  angles[1] <- acos(mu[1])
+
+  if ( p > 2 ) {
+    for ( k in 2:(p - 1) )  {
+      denom <- sqrt( max(sum(mu[k:p]^2), 1e-14) )
+      val <- mu[k] / denom
+      val <- pmax(pmin(val, 1), -1)
+      angles[k] <- acos(val)
+    }
+  }
+
+  pmax( pmin(angles, pi - 1e-10), 1e-10 )
+}
+
+
+.vec_to_L <- function(v, q) {
+  # v has length q*(q+1)/2
+  # diagonal entries are exp(v[diag indices])
+  L <- matrix(0, q, q)
+  L[lower.tri(L, diag = TRUE)] <- v
+  diag(L) <- exp( pmax(diag(L), -50) )  # Prevent overflow
+  L
+}
+
+.L_to_vec <- function(L) {
+  q <- nrow(L)
+  v <- L[lower.tri(L, diag = TRUE)]
+  # store log of diagonal
+  diag_idx <- cumsum(seq_len(q))
+  v[diag_idx] <- log(pmax(diag(L), 1e-10))
+  v
+}
+
+.vec_to_V <- function(v, q) {
+  L <- .vec_to_L(v, q)
+  V <- tcrossprod(L)               # L L^T
+  # enforce det = 1
+  scl <- max(det(V), 1e-10)^(1 / q)
+  V <- V / scl
+  # Ensure symmetry and positive definiteness
+  V <- (V + t(V)) / 2
+  V + diag(q) * 1e-8
+}
+
+.V_to_vec <- function(V) {
+  q <- nrow(V)
+  # Ensure positive definite
+  V <- (V + t(V)) / 2
+  # Add small ridge if needed
+  if ( min( eigen(V, symmetric = TRUE, only.values = TRUE)$values ) < 0 ) {
+    V <- V + diag(q) * 1e-6
+  }
+  scl <- max(det(V), 1e-10)^(1 / q)
+  L <- t(chol(V / scl))
+  .L_to_vec(L)
+}
+
+#------------------------------------------------------------
+# Joint optimisation over (mu, kappa, V) via optim()
+# Used as a polishing step after the iterative algorithm
+#------------------------------------------------------------
+.pack_params <- function(mu, kappa, V) {
+  q <- nrow(V)
+  c( .mu_to_angles(mu), log(max(kappa, 1e-8)), .V_to_vec(V) )
+}
+
+.unpack_params <- function(theta, p) {
+  q <- p - 1
+  n_angles <- p - 1
+  n_V <- q * (q + 1) / 2
+  # Check for NA/NaN in theta
+  if ( any( is.na(theta) ) || any( is.nan(theta) ) ) {
+    warning( "NA/NaN in theta, using default values" )
+    return( list(mu = c(1, rep(0, q)), kappa = 10, V = diag(q)) )
+  }
+
+  angles <- theta[seq_len(n_angles)]
+  kappa <- exp( pmin(pmax(theta[n_angles + 1], -30), 30) )
+  v_vec <- theta[n_angles + 1 + seq_len(n_V)]
+  # Handle NA/NaN in angles
+  if ( any( is.na(angles) ) || any( is.nan(angles) ) ) {
+    angles <- rep(pi/4, n_angles)
+  }
+  mu <- .angles_to_mu(angles)
+  V <- tryCatch( .vec_to_V(v_vec, q), error = function(e) diag(q) )
+  list(mu = mu, kappa = kappa, V = V)
+}
+
+.neg_loglik_packed <- function(theta, y, a1) {
+  p <- ncol(y)
+  pars <- .unpack_params(theta, p)
+  - .loglik_full(y, pars$mu, pars$kappa, pars$V, a1)
+}
+

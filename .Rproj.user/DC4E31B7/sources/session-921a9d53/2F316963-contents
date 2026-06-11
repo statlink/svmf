@@ -1,0 +1,5 @@
+#useDynLib(pchc, .registration = TRUE)
+
+importFrom("Rfast", auc, colaucs, colmeans)
+
+

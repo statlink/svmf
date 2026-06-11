@@ -1,0 +1,17 @@
+kde.nb <- function(xnew, ina, x, h) {
+
+  ina <- as.numeric(ina)
+  k <- max(ina)
+  n <- length(x)
+  nz <- length(xnew)
+  prob <- tabulate(ina) / n
+
+  f <- matrix(nrow = nz, ncol = k)
+  for ( i in 1:k) {
+    a <- exp( -0.5 * Rfast::dista(xnew, x[ina==i], square = TRUE)/h^2 )
+    f[, i] <- prob[i] * Rfast::rowmeans(a) / h
+  }
+  prob <- f / Rfast::rowsums(f)
+  cl <- Rfast::rowMaxs(f)
+  list(prob = prob, cl = cl)
+}

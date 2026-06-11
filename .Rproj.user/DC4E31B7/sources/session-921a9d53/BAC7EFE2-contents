@@ -1,0 +1,69 @@
+kernel2 <- function(x, h = "silverman") {
+
+  if ( is.vector(x) ) {
+    n <- length(x)
+    lenh <- length(h)
+
+    if ( lenh == 1 ) {
+      if ( h == "silverman" ) {
+        s <- Rfast::Var(x, std = TRUE)
+        iqr <- diff( Rfast2::Quantile(x, probs = c(0.25, 0.75) ) )
+        h <- 0.9 * min(s, iqr / 1.34 ) * n^( -0.2 )
+      } else if ( h == "scott" ) {
+        s <- Rfast::Var(x, std = TRUE)
+        h <- 1.06 * s * n^( -0.2 )
+      }
+      h2 <- 2 * h^2
+      d <- Rfast::Dist(x, square = TRUE) / h2
+      f <- Rfast::colsums( exp(-d) ) / (n * h * sqrt(2 * pi) )
+
+    } else {  ## h is a vector
+      f <- matrix( nrow = n, ncol = lenh )
+      h2 <- 2 * h^2
+      d <- Rfast::Dist(x, square = TRUE)
+      for ( j in 1:lenh ) {
+        f[, j] <- Rfast::colsums( exp(-d / h2[j]) ) / ( n * h[j] * sqrt(2 * pi) )
+      }
+    }
+
+  } else { ## x is a matrix
+    n <- dim(x)[1]  ;  p <- dim(x)[2]
+
+    if ( h == "silverman" ) {
+      s <- Rfast::colVars(x, std = TRUE)
+      iqr <- Rfast2::colQuantile(x, probs = c(0.25, 0.75) )
+      iqr <- iqr[2, ] - iqr[1, ]
+      h <- 0.9 * pmin(s, iqr / 1.34 ) * n^( -0.2 )
+    } else if ( h == "scott" ) {
+      s <- Rfast::colVars(x, std = TRUE)
+      h <- 1.06 * s * n^( -0.2 )
+    }
+
+    x <- t( t(x) / ( sqrt(2) * h ) )
+    d <- Rfast::Dist(x, square = TRUE)
+    f <- Rfast::colsums( exp(-d) ) / ( n * prod(h) * (2 * pi)^(0.5 * p) )
+  }
+
+  f
+}
+
+
+
+x <- rnorm(50)
+
+a <- kernel(x, h = 1)  
+a2 <- kernel2(x, h = 1)
+n <- length(x)
+h <- 1
+a + 1/ (n * h * sqrt(2 * pi) )
+
+a <- kernel(x)  ## when rule is silverman or scott 
+a <- kernel(x, h = c(0.1, 0.2) ) ## when you give a vector with h values
+
+x <- as.matrix(iris[, 1:2]) ## when you give a matrix
+a <- kernel(x) 
+a <- kernel(x, h = c(0.1, 0.2) ) ## a matrix with a vector of h values
+  
+
+
+

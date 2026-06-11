@@ -1,0 +1,21 @@
+kde.da2.R <- function(ina, x, h) {
+
+  ina <- as.numeric(ina)
+  k <- max(ina)
+  n <- length(x)
+  prob <- tabulate(ina) / n
+  f <- matrix(nrow = n, ncol = k)
+  a <- list()
+  for ( i in 1:k )  a[[ i ]] <- exp( -0.5 * Rfast::dista(x, x[ina==i], square = TRUE) )
+
+  fun <- function(h, y, x, a, prob, f) {
+    for ( i in 1:k )  f[, i] <- prob[i] * Rfast::rowmeans(a[[ i ]]^ (1 / h) ) / h
+    est <- Rfast::rowMaxs(f)
+    mean(est == ina)
+  }
+
+  mod <- optimize(fun, h, y = y, x = x, a = a, prob = prob, f = f, maximum = TRUE)
+  res <- c(mod$maximum, perf = mod$objective)
+  names(res) <- c("hopt", "percentage")
+  res
+}

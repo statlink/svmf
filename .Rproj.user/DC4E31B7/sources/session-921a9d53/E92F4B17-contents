@@ -1,0 +1,13 @@
+Package: knb
+Type: Package
+Title: Kernel Naive Bayes Discriminant Analysis
+Version: 1.0
+Date: 2026-06-10
+Authors@R: person("Michail", "Tsagris", role = c("aut", "cre"), email = "mtsagris@uoc.gr")
+Author: Michail Tsagris [aut, cre]
+Maintainer: Michail Tsagris <mtsagris@uoc.gr>
+Depends: R (>= 4.0)
+Imports: Compositional, Rfast, 
+Description: Functions to perform naive Bayes discriminant analysis using kernel density estimation. For the case of binary classification the package relies upon the Nadaraya-Watson estimator.  
+License: GPL (>= 2)
+

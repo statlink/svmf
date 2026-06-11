@@ -1,0 +1,36 @@
+rsvmf <- function(n, mu, kappa, V, a1 = 1, Gamma = NULL) {
+  p <- length(mu)
+  q <- p - 1  
+
+  eV  <- eigen(V, symmetric = TRUE)
+  a_j <- sqrt( pmax(eV$values, 1e-14) )  
+  e1 <- c(1, numeric(q) )  
+  z <- Rfast::rvmf(n, e1, kappa)
+  a_vec <- c(a1, a_j)
+  a_vec_adj <- a_vec
+  a_vec_adj[-1] <- a_vec[-1] / prod(a_vec[-1])^(1 / q)
+  y_aligned <- Rfast::eachrow(z, a_vec_adj)
+  y_aligned <- y_aligned / sqrt( Rfast::rowsums(y_aligned^2) )
+ 
+  K_star <- eV$vectors                # (p - 1) x (p - 1)
+  rot_full <- matrix(0, p, p)
+  rot_full[1, 1] <- 1
+  rot_full[-1, -1] <- K_star
+  y_rot <- tcrossprod(y_aligned, rot_full)
+
+  if ( !is.null(Gamma) ) {
+    y <- tcrossprod(y_rot, Gamma)
+  } else {
+    e1 <- c(1, numeric(q) )
+    mu_n <- mu / sqrt( sum(mu^2) )
+    if ( max(abs(mu_n - e1)) < 1e-12 ) {
+      y <- y_rot
+    } else {
+      u_h <- e1 - mu_n  ;  u_h <- u_h / sqrt( sum(u_h^2) )
+      R <- diag(p) - 2 * tcrossprod(u_h)
+      y <- y_rot %*% R
+    }
+  }
+
+  y
+}

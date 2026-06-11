@@ -1,0 +1,92 @@
+kern.reg <- function(xnew, y, x, h, type = "gauss") {
+  xnew <- as.matrix(xnew)
+  p <- dim(xnew)[2] 
+  if (p == 1)  xnew <- t(xnew)
+  m <- colmeans(x)
+  s <- colVars(x, std = TRUE)
+  X <- t( (t(x) - m)/s )
+  xnew <- t( (t(xnew) - m)/s )
+  if ( length(h) == 1) {
+    if (type == "gauss") {
+      a1 <-  - 0.5 * Rfast::dista(xnew, X )^2/h^2
+    } else  a1 <-  - Rfast::dista(xnew, X, type = "manhattan" )/h
+    z <- exp( a1)
+    ta <- Rfast::rowsums(z)
+    mhx <- ( z %*% y) / ta
+    mhx <- as.vector(mhx)
+  } else {
+    mhx <- matrix(0, nrow = dim(xnew)[1], ncol = length(h) )
+    if (type == "gauss") {
+      a1 <-  - 0.5 * Rfast::dista(xnew, X )^2
+      z <- exp(a1)
+      for ( i in 1:length(h) ) {
+        za <- z^(1/h[i]^2)
+        ta <- Rfast::rowsums(za)
+        mhx[, i] <- ( za %*% y) / ta
+      }
+    } else {
+      a1 <-  - Rfast::dista(xnew, X, type = "manhattan" )
+      z <- exp(a1)
+      for ( i in 1:length(h) ) {
+        za <- z^(1/h[i])
+        ta <- Rfast::rowsums(za)
+        mhx[, i] <- ( za %*% y) / ta
+      }
+	}  
+  }
+  mhx[ is.na(mhx) ] <- 0 
+  mhx
+}
+
+
+
+
+
+
+
+kernreg.tune <- function(y, x, kfolds = 10, folds = NULL, h = seq(0.1, 0.5, by = 0.1), type = "gauss", seed = FALSE, pred.ret = FALSE) {
+  
+  if ( is.null(folds) )  folds <- genfolds(y, nfolds = kfolds, seed = seed) 
+  est <- list()
+  msp <- matrix( nrow = kfolds, ncol = length(h) )
+  for (i in 1:kfolds) {
+    ytest <- y[ folds[[ i ]] ]   ## test set dependent vars
+    ytrain <- y[ -folds[[ i ]] ]   ## train set dependent vars
+    xtrain <-  x[ -folds[[ i ]], ]  ## train set independent vars
+    xtest <- x[ folds[[ i ]], , drop = FALSE]   ## test set independent vars
+    est[[ i ]] <- kern.reg(xtest, ytrain, xtrain, h, type = type)
+    msp[i, ] <- colmeans( (ytest - est[[ i ]])^2 ) 
+  }
+  mspe <- Rfast::colmeans(msp)
+  names(mspe) <- h
+  if (!pred.ret) {
+    res <- list(folds = folds, mspe = mspe)
+  } else  res <- list(folds = folds, est = est, mspe = mspe)
+  res 
+}
+
+
+
+
+
+genfolds <- function(target, nfolds = 10, seed = FALSE) {
+  a <- paste("Fold", 1:nfolds)
+  runs <- sapply(a, function(x) NULL)
+  if ( seed )  set.seed(1234)
+  options(warn = -1)
+  mat <- matrix( sample( length(target) ), ncol = nfolds )
+  for ( i  in 1:c(nfolds - 1) )  runs[[ i ]] <- mat[, i]
+  a <- prod( dim(mat) ) - length(target)
+  runs[[ nfolds  ]] <- mat[ 1:c(nrow(mat) - a), nfolds ]
+  runs
+}
+
+
+x = matrix( rnorm(200 * 50), ncol = 50)
+be = rnorm(50)
+y = rnorm(200, x %*% be, 5)
+system.time( kern.reg(x,y,x,h=runif(10) ) )
+
+system.time( a <- kernreg.tune(y, x) )
+
+
