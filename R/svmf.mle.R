@@ -12,6 +12,7 @@ svmf.mle <- function(y, a1 = 1, maxit_outer = 100, maxit_V = 500, tol = 1e-6) {
   kappa <- 10
 
   ll_old <-  -Inf
+  ll_new <-  -Inf
   for ( i in seq_len(maxit_outer) ) {
     V <- tryCatch( .update_V(yt, mu, kappa, V, a1, maxit = maxit_V, tol = tol * 1e-2),
                    error = function(e) { diag(q) } )
@@ -34,15 +35,19 @@ svmf.mle <- function(y, a1 = 1, maxit_outer = 100, maxit_V = 500, tol = 1e-6) {
     if ( is.finite(ll_new) )  ll_old <- ll_new
   }
 
-  a_rest <- sqrt( diag(V) )
-  a_rest <- a_rest / prod(a_rest)^(1/q)
+  #--- V = K diag(a_2^2, ..., a_p^2) K'  (paper, eq. 9) ---
+  ev <- eigen(V, symmetric = TRUE)
+  a_rest <- sqrt( ev$values )              # decreasing: a_2 > a_3 > ... > a_p
+  K <- ev$vectors
   a_vec <- c(a1, a_rest)
-  names(a_vec) <- c( paste0("a", 1), paste0("a", 2:p) )
+  names(a_vec) <- paste0("a", 1:p)
+
+  #--- Back to the original coordinates:  Gamma = {mu, H*(mu) K*} ---
   mu_orig <- drop(Gh %*% mu)
   Hs_rot <- .Hstar(mu)
-  Gamma_orig <- Gh %*% cbind(mu, Hs_rot)
+  Gamma_orig <- Gh %*% cbind(mu, Hs_rot %*% K)
 
-  list(mu = mu_orig, kappa = kappa, a = a_vec, loglik = ll_new, Gamma = Gamma_orig)
+  list(mu = mu_orig, kappa = kappa, a = a_vec, V = V, loglik = ll_new, Gamma = Gamma_orig)
 }
 
 
@@ -81,7 +86,7 @@ svmf.mle <- function(y, a1 = 1, maxit_outer = 100, maxit_V = 500, tol = 1e-6) {
   s2 <- .compute_s2(y1s, yLs, Vinv, a1)
   s2 <- pmax(s2, 1e-10)
 
-  -n * log(a1) - n * .log_cp(kappa, p) - (p - 1) / 2 * sum(log(s2)) + kappa / a1 * sum(y1s / sqrt(s2))
+  -n * log(a1) - n * .log_cp(kappa, p) - p / 2 * sum(log(s2)) + kappa / a1 * sum(y1s / sqrt(s2))
 }
 
 .update_V <- function(y, mu, kappa, V, a1, maxit = 500, tol = 1e-9) {
@@ -97,7 +102,7 @@ svmf.mle <- function(y, a1 = 1, maxit_outer = 100, maxit_V = 500, tol = 1e-6) {
     s2 <- .compute_s2(y1s, yLs, Vinv, a1)
     s2 <- pmax(s2, 1e-10)
 
-    w <- (p - 1) / s2 + (kappa / a1) * y1s / s2^(3 / 2)
+    w <- p / s2 + (kappa / a1) * y1s / s2^(3 / 2)
     w <- pmax(w, 1e-10)
     Vnew <- crossprod(yLs, yLs * w)          # (p-1) x (p-1)
     det_val <- max(det(Vnew), 1e-10)
@@ -182,78 +187,3 @@ svmf.mle <- function(y, a1 = 1, maxit_outer = 100, maxit_V = 500, tol = 1e-6) {
 
   pmax( pmin(angles, pi - 1e-10), 1e-10 )
 }
-
-.vec_to_L <- function(v, q) {
-  # v has length q*(q+1)/2
-  # diagonal entries are exp(v[diag indices])
-  L <- matrix(0, q, q)
-  L[lower.tri(L, diag = TRUE)] <- v
-  diag(L) <- exp( pmax(diag(L), -50) )  # Prevent overflow
-  L
-}
-
-.L_to_vec <- function(L) {
-  q <- nrow(L)
-  v <- L[lower.tri(L, diag = TRUE)]
-  # store log of diagonal
-  diag_idx <- cumsum(seq_len(q))
-  v[diag_idx] <- log(pmax(diag(L), 1e-10))
-  v
-}
-
-.vec_to_V <- function(v, q) {
-  L <- .vec_to_L(v, q)
-  V <- tcrossprod(L)               # L L^T
-  # enforce det = 1
-  scl <- max(det(V), 1e-10)^(1 / q)
-  V <- V / scl
-  # Ensure symmetry and positive definiteness
-  V <- (V + t(V)) / 2
-  V + diag(q) * 1e-8
-}
-
-.V_to_vec <- function(V) {
-  q <- nrow(V)
-  # Ensure positive definite
-  V <- (V + t(V)) / 2
-  # Add small ridge if needed
-  if ( min( eigen(V, symmetric = TRUE, only.values = TRUE)$values ) < 0 ) {
-    V <- V + diag(q) * 1e-6
-  }
-  scl <- max(det(V), 1e-10)^(1 / q)
-  L <- t(chol(V / scl))
-  .L_to_vec(L)
-}
-
-.pack_params <- function(mu, kappa, V) {
-  q <- nrow(V)
-  c( .mu_to_angles(mu), log(max(kappa, 1e-8)), .V_to_vec(V) )
-}
-
-.unpack_params <- function(theta, p) {
-  q <- p - 1
-  n_angles <- p - 1
-  n_V <- q * (q + 1) / 2
-  # Check for NA/NaN in theta
-  if ( any( is.na(theta) ) || any( is.nan(theta) ) ) {
-    warning( "NA/NaN in theta, using default values" )
-    return( list(mu = c(1, rep(0, q)), kappa = 10, V = diag(q)) )
-  }
-
-  angles <- theta[seq_len(n_angles)]
-  kappa <- exp( pmin(pmax(theta[n_angles + 1], -30), 30) )
-  v_vec <- theta[n_angles + 1 + seq_len(n_V)]
-  if ( any( is.na(angles) ) || any( is.nan(angles) ) ) {
-    angles <- rep(pi/4, n_angles)
-  }
-  mu <- .angles_to_mu(angles)
-  V <- tryCatch( .vec_to_V(v_vec, q), error = function(e) diag(q) )
-  list(mu = mu, kappa = kappa, V = V)
-}
-
-.neg_loglik_packed <- function(theta, y, a1) {
-  p <- ncol(y)
-  pars <- .unpack_params(theta, p)
-  - .loglik_full(y, pars$mu, pars$kappa, pars$V, a1)
-}
-

@@ -14,8 +14,8 @@ For more information see Scealy and Wood (2019).
 \tabular{ll}{
 Package: \tab svmf\cr
 Type: \tab Package\cr
-Version: \tab 1.0 \cr
-Date: \tab 2026-06-11 \cr
+Version: \tab 1.1 \cr
+Date: \tab 2026-10-14 \cr
 }
 }
 
