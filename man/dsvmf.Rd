@@ -63,5 +63,5 @@ mu <- mu / sqrt( sum(mu^2) )
 a <- c(1, 3, 1/3)
 y <- rsvmf(1000, mu, a, 20)
 mod <- svmf.mle(y)
-z <- dsvmf(y, mod$mu, mod$kappa, mod$a, mod$Gamma,log = T)
+z <- dsvmf(y, mod$mu, mod$kappa, mod$a, mod$Gamma,log = TRUE)
 }
